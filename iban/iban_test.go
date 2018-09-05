@@ -21,7 +21,7 @@ func TestFake(t *testing.T) {
 
 	// Loop through fake ibans, they should all raise an error
 	for _, fake := range fakeIBANs {
-		iban, err := NewIBAN(fake)
+		iban, err := ParseIBAN(fake)
 		if err == nil {
 			// Fake iban did not raise an error,
 			t.Errorf("IBAN fake test error: %v", iban.Code)
@@ -31,7 +31,7 @@ func TestFake(t *testing.T) {
 
 // Test real ibans
 func TestIBANS(t *testing.T) {
-	err := filepath.Walk("example-ibans", func(path string, f os.FileInfo, err error) error {
+	walker := func(path string, f os.FileInfo, err error) error {
 		if f.IsDir() || strings.HasPrefix(f.Name(), ".") {
 			return nil
 		}
@@ -43,26 +43,40 @@ func TestIBANS(t *testing.T) {
 
 		defer file.Close()
 
-		scanner := bufio.NewScanner(file)
+		t.Run(path, func(t *testing.T) {
+			scanner := bufio.NewScanner(file)
 
-		t.Logf("Start IBAN file test %v\n", path)
+			t.Logf("Start IBAN file test %v\n", path)
 
-		for scanner.Scan() {
-			line := scanner.Text()
-			t.Logf("IBAN code input: %v\n", line)
-			iban, ibanErr := NewIBAN(line)
-			if ibanErr != nil {
-				return ibanErr
+			for scanner.Scan() {
+				line := scanner.Text()
+				if line == "" || line[0] == '#' {
+					// blank line or comment
+					continue
+				}
+
+				t.Logf("IBAN code input: %v\n", line)
+				iban, err := ParseIBAN(line)
+				if err != nil {
+					if err == ErrUnsupportedCountryCode {
+						t.Logf("IBAN unsupport country code from: %q", line)
+						return
+					} else {
+						t.Fatal("parse iban failed:", err)
+					}
+				}
+				t.Logf("IBAN code validated: %v\n", iban.PrintCode)
 			}
-			t.Logf("IBAN code validated: %v\n", iban.PrintCode)
-		}
 
-		if err := scanner.Err(); err != nil {
-			return err
-		}
+			if err := scanner.Err(); err != nil {
+				t.Error("file scanner failed:", err)
+			}
+		})
 
 		return nil
-	})
+	}
+
+	err := filepath.Walk("example-ibans", walker)
 
 	if err != nil {
 		t.Errorf("IBAN test error: %v", err)
